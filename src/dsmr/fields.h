@@ -126,8 +126,9 @@ struct TimestampedFixedField : public FixedField<T, _unit, _int_unit> {
 // something like this, e.g.:
 // 0-1:24.3.0(150623120000)(00)(60)(1)(0-1:24.2.1)(m3)
 // (01100.658)
+// Note that the output spans two lines
 template <typename T, const char *_unit, const char *_int_unit>
-struct TwoLineTimestampedFixedField : public FixedField<T, _unit, _int_unit> {
+struct DoubleLineTimestampedFixedField : public FixedField<T, _unit, _int_unit> {
   ParseResult<void> parse(const char *str, const char *end) {
     // First, parse timestamp
     ParseResult<String> res = StringParser::parse_string(12, 12, str, end);
@@ -136,29 +137,56 @@ struct TwoLineTimestampedFixedField : public FixedField<T, _unit, _int_unit> {
 
     static_cast<T*>(this)->val().timestamp = res.result;
 
-    const char *start = res.next;
-    // Skip to end of line.
-    while (*start != '\r' && *start != '\n' && start != end)
-      ++start;
+    // The timestamp is followed by 3 sets of numerical values, parse them
+    ParseResult<uint32_t> numres = NumParser::parse(0, NULL, res.next, end);
+    if (numres.err)
+      return numres;
 
+    numres = NumParser::parse(0, NULL, numres.next, end);
+    if (res.err)
+      return numres;
+
+    numres = NumParser::parse(0, NULL, numres.next, end);
+    if (numres.err)
+      return numres;
+
+    // Afther the numerical values, another ObisID is presented,
+    // skip the first ')'
+    ParseResult<ObisId> idres = ObisIdParser::parse(numres.next + 1, end);
+    if (idres.err)
+      return idres;
+
+    // The last item on the line is the unit, again skip the closing ')'
+    size_t unit_size = strnlen(_unit, 3);
+    ParseResult<String> unitres = StringParser::parse_string(unit_size, unit_size, idres.next + 1, end);
+    if (unitres.err)
+      return unitres;
+    
+    // Verify the unit.
+    const char *unit = unitres.result.c_str();
+    if(memcmp(unit, _unit, unit_size) != 0) {
+      return unitres.fail((const __FlashStringHelper*)INVALID_UNIT, idres.next + 1);
+    }
+
+    // Now move to the next line.
+    const char *start = unitres.next;
     if (*start == '\r')
       ++start;
 
     if (*start == '\n')
       ++start;
 
+    // Since the start line is moved, also move the end line.
     const char *newend = start;
-
     while (*newend != '\r' && *newend != '\n' && newend != end)
       ++newend;
 
-    // Parse the value here, the unit is specified in the 1st line,
-    // so set it to NULL here.
-    ParseResult<uint32_t> resnum = NumParser::parse(3, NULL, start, newend);
-    if (!resnum.err)
-      static_cast<T*>(this)->val()._value = resnum.result;
+    // Finally parse the value.
+    numres = NumParser::parse(3, NULL, start, newend);
+    if (!numres.err)
+      static_cast<T*>(this)->val()._value = numres.result;
 
-    return resnum;
+    return numres;
   }
 };
 
@@ -343,10 +371,9 @@ DEFINE_FIELD(gas_valve_position, uint8_t, ObisId(0, GAS_MBUS_ID, 24, 4, 0), IntF
  * "hourly value") */
 DEFINE_FIELD(gas_delivered, TimestampedFixedValue, ObisId(0, GAS_MBUS_ID, 24, 2, 1), TimestampedFixedField, units::m3, units::dm3);
 
-/* Last 5-minute value (temperature converted), gas delivered to client
- * in m3, including decimal values and capture time (Note: 4.x spec has
- * "hourly value") */
-DEFINE_FIELD(gas_delivered2, TimestampedFixedValue, ObisId(0, GAS_MBUS_ID, 24, 3, 0), TwoLineTimestampedFixedField, units::m3, units::dm3);
+/* Last hourly value (temperature compensated or not, depending on the display
+ * setting of the gasmeter), gas delivered to client in m3, including decimal values */
+DEFINE_FIELD(gas_delivered2, TimestampedFixedValue, ObisId(0, GAS_MBUS_ID, 24, 3, 0), DoubleLineTimestampedFixedField, units::m3, units::dm3);
 
 /* Device-Type */
 DEFINE_FIELD(thermal_device_type, uint16_t, ObisId(0, THERMAL_MBUS_ID, 24, 1, 0), IntField, units::none);
@@ -360,7 +387,6 @@ DEFINE_FIELD(thermal_valve_position, uint8_t, ObisId(0, THERMAL_MBUS_ID, 24, 4, 
 /* Last 5-minute Meter reading Heat or Cold in 0,01 GJ and capture time
  * (Note: 4.x spec has "hourly meter reading") */
 DEFINE_FIELD(thermal_delivered, TimestampedFixedValue, ObisId(0, THERMAL_MBUS_ID, 24, 2, 1), TimestampedFixedField, units::GJ, units::MJ);
-
 
 /* Device-Type */
 DEFINE_FIELD(water_device_type, uint16_t, ObisId(0, WATER_MBUS_ID, 24, 1, 0), IntField, units::none);
