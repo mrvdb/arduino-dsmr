@@ -379,11 +379,15 @@ struct P1Parser {
 
     // Parse data lines
     while (line_end < end) {
-      if (*line_end == '\r' || *line_end == '\n') {
+      // When a line is skipped line_start > line_end.
+      // i.e. line_start is already at the next line, line_end is still behind,
+      // continue iterating over line_end until the next line is found.
+      if (*line_end == '\r' || *line_end == '\n' && line_start <= line_end) {
         ParseResult<void> tmp = parse_line(data, line_start, line_end, unknown_error);
         if (tmp.err)
           return tmp;
-        line_start = line_end + 1;
+
+        line_start = tmp.next;
       }
       line_end++;
     }
@@ -397,8 +401,9 @@ struct P1Parser {
   template <typename Data>
   static ParseResult<void> parse_line(Data *data, const char *line, const char *end, bool unknown_error) {
     ParseResult<void> res;
+
     if (line == end)
-      return res;
+      return res.until(end + 1);
 
     ParseResult<ObisId> idres = ObisIdParser::parse(line, end);
     if (idres.err)
@@ -408,15 +413,18 @@ struct P1Parser {
     if (datares.err)
       return datares;
 
+    // If datares.next > end, a line is skipped.
+    if(datares.next != idres.next && datares.next > end)
+      return res.until(datares.next);
     // If datares.next didn't move at all, there was no parser for
     // this field, that's ok. But if it did move, but not all the way
     // to the end, that's an error.
-    if (datares.next != idres.next && datares.next != end)
+    else if (datares.next != idres.next && datares.next != end)
       return res.fail(F("Trailing characters on data line"), datares.next);
     else if (datares.next == idres.next && unknown_error)
       return res.fail(F("Unknown field"), line);
 
-    return res.until(end);
+    return res.until(end + 1);
   }
 };
 
