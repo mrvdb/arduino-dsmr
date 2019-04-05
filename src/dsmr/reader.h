@@ -163,9 +163,19 @@ class P1Reader {
             case State::READING_STATE:
               // Include the ! in the CRC
               this->crc = _crc16_update(this->crc, c);
-              if (c == '!')
+              if (c == '!') {
+ #ifdef DSMR22
+                // No CRC, assume correctness
+                // Prepare for next message
+                this->state = State::WAITING_STATE;
+                this->_available = true;
+                if (once)
+                  this->disable();
+                return true;
+ #else
                 this->state = State::CHECKSUM_STATE;
-              else
+ #endif
+              } else
                 buffer.concat((char)c);
 
               break;

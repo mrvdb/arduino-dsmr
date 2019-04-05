@@ -32,6 +32,10 @@
 #ifndef DSMR_INCLUDE_DSMR_H
 #define DSMR_INCLUDE_DSMR_H
 
+// Workaround for isolatiing support DSMR2.2 (kinda)
+// - no checksum after the '!'
+#define DSMR22
+
 #include "dsmr/parser.h"
 #include "dsmr/reader.h"
 #include "dsmr/fields.h"
